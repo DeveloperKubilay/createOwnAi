@@ -1,2 +1,2 @@
-5 saniyede 1k tokanizer
+12 saniyede 10k tokanizer
 1 saniye 1k jsonl
