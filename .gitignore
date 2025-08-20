@@ -1,0 +1,3 @@
+drive/client_secret_*.json
+drive/token.pickle
+.env

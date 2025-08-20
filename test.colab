@@ -1,0 +1,3 @@
+!wget 
+!unzip drive.zip
+!python train_model.py
