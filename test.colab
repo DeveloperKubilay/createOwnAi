@@ -1,3 +1,9 @@
-!wget 
-!unzip drive.zip
-!python train_model.py
+from google.colab import drive
+drive.mount('/content/drive')
+
+!mkdir -p /content/drive/MyDrive
+
+!apt-get install -y tmate
+!tmate
+
+%cd /content/drive/MyDrive

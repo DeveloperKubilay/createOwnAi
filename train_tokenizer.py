@@ -24,3 +24,5 @@ trainer = BpeTrainer(vocab_size=32000, min_frequency=3,
 
 tokenizer.train_from_iterator(iter_lines("./model.jsonl", batch_size=20000), trainer=trainer)
 tokenizer.save("tokenizer")
+
+#pip install tokenizers orjson
