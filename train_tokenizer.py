@@ -64,9 +64,43 @@ trainer = BpeTrainer(
     special_tokens=["<s>", "<pad>", "</s>", "<unk>", "<mask>"]
 )
 
-print("🔥 Training başladı...")
-tokenizer.train_from_iterator(iter_lines_parallel("./model.jsonl", batch_size=50000), trainer=trainer)
-tokenizer.save("tokenizer")
+# Tokenizer var mı kontrol et
+if os.path.exists("tokenizer") and os.path.isdir("tokenizer"):
+    print("✅ Tokenizer zaten var, atlıyor...")
+else:
+    print("🔥 Tokenizer training başladı...")
+    tokenizer.train_from_iterator(iter_lines_parallel("./model.jsonl", batch_size=50000), trainer=trainer)
+    tokenizer.save("tokenizer")
+    print("✅ Tokenizer kaydedildi!")
 
-#pip install tokenizers orjson
-#pip install google-api-python-client google-auth-oauthlib tokenizers orjson
+# Tokenized data var mı kontrol et
+if os.path.exists("model_tokenized.jsonl"):
+    print("✅ Tokenized data zaten var, işlem tamamlandı!")
+else:
+    print("💾 Preprocessing başladı...")
+    from transformers import PreTrainedTokenizerFast
+    import json
+
+    fast_tokenizer = PreTrainedTokenizerFast(tokenizer_file="./tokenizer")
+    fast_tokenizer.add_special_tokens({
+        'bos_token': '<s>',
+        'eos_token': '</s>',
+        'unk_token': '<unk>',
+        'pad_token': '<pad>',
+        'mask_token': '<mask>'
+    })
+
+    with open("model_tokenized.jsonl", "w", encoding="utf-8") as out_file:
+        for text in iter_lines_parallel("./model.jsonl", batch_size=10000):
+            tokens = fast_tokenizer(
+                text,
+                truncation=True,
+                max_length=8192,
+                return_tensors=None
+            )
+            # HuggingFace format için sadece input_ids'i kaydet
+            out_file.write(json.dumps({"input_ids": tokens["input_ids"]}) + "\n")
+
+    print("✅ Tokenized data kaydedildi!")
+
+#pip install tokenizers orjson transformers

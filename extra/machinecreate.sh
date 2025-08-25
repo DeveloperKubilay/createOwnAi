@@ -15,8 +15,8 @@ python3 main.py download 1fu_1CCeKw42zl-iCjEcQodA5reFlFLn2
 mv 1fu_1CCeKw42zl-iCjEcQodA5reFlFLn2 ./model.jsonl
 
 sudo apt install unzip htop -y
-echo "PS1='\[\e[38;5;71m\]\u@\h\[\e[38;5;15m\]:\[\e[38;5;19m\]\w \[\e[38;5;15m\]#\[\e[0m\] '" >> ~/.bashrc && source ~/.bashrc
 sudo nano /etc/ssh/sshd_config
 PasswordAuthentication yes
 PermitRootLogin yes
+echo "PS1='\[\e[38;5;71m\]\u@\h\[\e[38;5;15m\]:\[\e[38;5;19m\]\w \[\e[38;5;15m\]#\[\e[0m\] '" >> ~/.bashrc && source ~/.bashrc
 sudo passwd 

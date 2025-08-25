@@ -62,7 +62,8 @@ gc.collect()
 torch.cuda.empty_cache()
 
 # === Dataset ===
-data = load_dataset("json", data_files="./model.jsonl", split="train")
+print("📂 Tokenized data yükleniyor...")
+data = load_dataset("json", data_files="./model_tokenized.jsonl", split="train")
 
 # === Data collator ===
 data_collator = DataCollatorForLanguageModeling(
@@ -88,7 +89,7 @@ training_args = TrainingArguments(
     fp16=True,  # T4 performance
     fp16_opt_level="O1",
     dataloader_pin_memory=True,
-    dataloader_num_workers=4,  # Daha fazla worker
+    dataloader_num_workers=2,  # Warning fix için düşürdüm
     remove_unused_columns=False,
     save_safetensors=True,
     resume_from_checkpoint=True,
