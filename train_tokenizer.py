@@ -7,6 +7,7 @@ import orjson
 import os
 from multiprocessing import Pool, cpu_count
 import mmap
+from tqdm import tqdm
 
 os.environ["RAYON_NUM_THREADS"] = str(cpu_count())
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
@@ -65,11 +66,11 @@ trainer = BpeTrainer(
 )
 
 # Tokenizer var mı kontrol et
-if os.path.exists("tokenizer") and os.path.isdir("tokenizer"):
+if os.path.exists("tokenizer"):
     print("✅ Tokenizer zaten var, atlıyor...")
 else:
     print("🔥 Tokenizer training başladı...")
-    tokenizer.train_from_iterator(iter_lines_parallel("./model.jsonl", batch_size=50000), trainer=trainer)
+    tokenizer.train_from_iterator(iter_lines_parallel("./model.jsonl", batch_size=200000), trainer=trainer)
     tokenizer.save("tokenizer")
     print("✅ Tokenizer kaydedildi!")
 
@@ -81,25 +82,57 @@ else:
     from transformers import PreTrainedTokenizerFast
     import json
 
-    fast_tokenizer = PreTrainedTokenizerFast(tokenizer_file="./tokenizer")
-    fast_tokenizer.add_special_tokens({
-        'bos_token': '<s>',
-        'eos_token': '</s>',
-        'unk_token': '<unk>',
-        'pad_token': '<pad>',
-        'mask_token': '<mask>'
-    })
-
-    with open("model_tokenized.jsonl", "w", encoding="utf-8") as out_file:
-        for text in iter_lines_parallel("./model.jsonl", batch_size=10000):
+    def tokenize_batch(texts):
+        fast_tokenizer = PreTrainedTokenizerFast(tokenizer_file="./tokenizer")
+        fast_tokenizer.add_special_tokens({
+            'bos_token': '<s>',
+            'eos_token': '</s>',
+            'unk_token': '<unk>',
+            'pad_token': '<pad>',
+            'mask_token': '<mask>'
+        })
+        
+        results = []
+        for text in texts:
             tokens = fast_tokenizer(
                 text,
                 truncation=True,
                 max_length=8192,
                 return_tensors=None
             )
-            # HuggingFace format için sadece input_ids'i kaydet
-            out_file.write(json.dumps({"input_ids": tokens["input_ids"]}) + "\n")
+            results.append(json.dumps({"input_ids": tokens["input_ids"]}) + "\n")
+        return results
+
+    batch_size = 50000  
+    texts_batch = []
+    
+    with open("model_tokenized.jsonl", "w", encoding="utf-8") as out_file:
+        for text in iter_lines_parallel("./model.jsonl", batch_size=200000):
+            texts_batch.append(text)
+            
+            if len(texts_batch) >= batch_size:
+                with Pool(cpu_count()) as pool:
+                    chunk_size = len(texts_batch) // cpu_count()
+                    batch_chunks = [texts_batch[i:i+chunk_size] for i in range(0, len(texts_batch), chunk_size)]
+                    results = pool.map(tokenize_batch, batch_chunks)
+                    
+                    for chunk_results in results:
+                        for line in chunk_results:
+                            out_file.write(line)
+                
+                texts_batch = []
+        
+        # Son batch'i işle
+        if texts_batch:
+            with Pool(cpu_count()) as pool:
+                chunk_size = len(texts_batch) // cpu_count() if len(texts_batch) > cpu_count() else 1
+                batch_chunks = [texts_batch[i:i+chunk_size] for i in range(0, len(texts_batch), chunk_size)]
+                if batch_chunks:
+                    results = pool.map(tokenize_batch, batch_chunks)
+                    
+                    for chunk_results in results:
+                        for line in chunk_results:
+                            out_file.write(line)
 
     print("✅ Tokenized data kaydedildi!")
 
