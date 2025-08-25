@@ -3,7 +3,7 @@ python3 -m venv myenv
 source myenv/bin/activate
 pip install google-api-python-client google-auth-oauthlib
 echo source myenv/bin/activate > active.txt
-screen -ls 
+screen
 
 pip install -r requirements.txt
 nano requirements.txt
@@ -20,8 +20,6 @@ PasswordAuthentication yes
 PermitRootLogin yes
 sudo passwd 
 sudo systemctl restart sshd
-
-python3 main.py download 1sdApIUSmXpAtlA5f1CAOORxPbfoGo2qk
 
 pip install tensorflow transformers datasets
 pip install tokenizers orjson transformers TOKANİZER İÇİN BU
