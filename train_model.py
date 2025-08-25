@@ -1,93 +1,132 @@
-# === TPU için TensorFlow + HuggingFace ===
-import tensorflow as tf
+import os
+import torch
 from transformers import (
-    TFGPT2LMHeadModel,
     GPT2Config,
+    GPT2LMHeadModel,
+    Trainer,
+    TrainingArguments,
+    DataCollatorForLanguageModeling,
     GPT2TokenizerFast,
+    AutoTokenizer,
+    PreTrainedTokenizerFast
 )
 from datasets import load_dataset
-from tensorflow.keras.mixed_precision import experimental as mixed_precision
+import gc
 
-# === TPU cihazını bağla ===
-try:
-    tpu = tf.distribute.cluster_resolver.TPUClusterResolver()
-    print('Running on TPU ', tpu.master())
-except ValueError:
-    tpu = None
+# === GPU OPTIMIZE ===
+torch.backends.cudnn.benchmark = True
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
 
-if tpu:
-    tf.config.experimental_connect_to_cluster(tpu)
-    tf.tpu.experimental.initialize_tpu_system(tpu)
-    strategy = tf.distribute.TPUStrategy(tpu)
-else:
-    strategy = tf.distribute.get_strategy()
-
-print("REPLICAS: ", strategy.num_replicas_in_sync)
+# === DEVICE CHECK ===
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"🔥 Device: {device}")
+if torch.cuda.is_available():
+    print(f"💥 GPU: {torch.cuda.get_device_name()}")
+    print(f"⚡ VRAM: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}GB")
 
 # === Tokenizer ===
-tokenizer = GPT2TokenizerFast.from_pretrained(
-    "../tokenizer",
-    bos_token="<s>",
-    eos_token="</s>",
-    unk_token="<unk>",
-    pad_token="<pad>",
-    mask_token="<mask>"
-)
+tokenizer = PreTrainedTokenizerFast(tokenizer_file="./tokenizer")
+tokenizer.add_special_tokens({
+    'bos_token': '<s>',
+    'eos_token': '</s>',
+    'unk_token': '<unk>',
+    'pad_token': '<pad>',
+    'mask_token': '<mask>'
+})
 
-# === Config & Model ===
+# === Config: Kaliteli model, optimize kod ===
 config = GPT2Config(
     vocab_size=tokenizer.vocab_size,
-    n_positions=8192,
+    n_positions=8192,  # Kalite için geri aldım
     n_ctx=8192,
-    n_embd=768,
-    n_layer=12,
-    n_head=12,
+    n_embd=768,  # Kalite için geri aldım
+    n_layer=12,  # Full layers
+    n_head=12,   # Full heads
     bos_token_id=tokenizer.bos_token_id,
     eos_token_id=tokenizer.eos_token_id,
-    pad_token_id=tokenizer.pad_token_id
+    pad_token_id=tokenizer.pad_token_id,
+    activation_function="gelu_new",  # Modern activation
+    attention_dropout=0.1,
+    resid_dropout=0.1,
+    use_cache=False  # Training için kapalı
 )
 
-with strategy.scope():
-    model = TFGPT2LMHeadModel(config)
+# === Model ===
+model = GPT2LMHeadModel(config)
+model = model.to(device)
+print(f"🧠 Model params: {sum(p.numel() for p in model.parameters())/1e6:.1f}M")
+
+# === Memory cleanup ===
+gc.collect()
+torch.cuda.empty_cache()
 
 # === Dataset ===
-data = load_dataset("json", data_files="../all_css_sample_1M.jsonl", split="train")
+data = load_dataset("json", data_files="./model.jsonl", split="train")
 
-def tokenize(batch):
-    return tokenizer(batch["text"], truncation=True, padding="max_length", max_length=2048)
-
-data = data.map(tokenize, batched=True, remove_columns=["text"])
-
-# TF Dataset dönüştürme
-def gen():
-    for i in range(len(data)):
-        yield ({'input_ids': data[i]['input_ids']}, data[i]['input_ids'])
-
-tf_dataset = tf.data.Dataset.from_generator(
-    gen,
-    output_types=({'input_ids': tf.int32}, tf.int32),
-    output_shapes=({'input_ids': (2048,)}, (2048,))
-).shuffle(1000).batch(1)
-
-# Mixed Precision Training'i etkinleştir
-policy = mixed_precision.Policy('mixed_float16')
-mixed_precision.set_policy(policy)
-
-# Learning Rate Scheduler
-lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-    initial_learning_rate=1e-4,
-    decay_steps=10000,
-    decay_rate=0.9
+# === Data collator ===
+data_collator = DataCollatorForLanguageModeling(
+    tokenizer=tokenizer,
+    mlm=False
 )
 
-# === Compile & Train ===
-with strategy.scope():
-    optimizer = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
-    loss_fn = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
-    model.compile(optimizer=optimizer, loss=loss_fn)
+# === Training: T4 OPTIMIZE + KALITE ===
+training_args = TrainingArguments(
+    output_dir="./trained_model",
+    overwrite_output_dir=True,
+    num_train_epochs=3,
+    per_device_train_batch_size=2,  # T4 için smart batch
+    gradient_accumulation_steps=8,   # Effective batch = 16
+    save_steps=500,
+    save_total_limit=3,
+    prediction_loss_only=True,
+    logging_steps=50,
+    eval_steps=500,
+    learning_rate=5e-5,  # Kalite için stable LR
+    warmup_steps=500,
+    weight_decay=0.01,
+    fp16=True,  # T4 performance
+    fp16_opt_level="O1",
+    dataloader_pin_memory=True,
+    dataloader_num_workers=4,  # Daha fazla worker
+    remove_unused_columns=False,
+    save_safetensors=True,
+    resume_from_checkpoint=True,
+    gradient_checkpointing=True,  # Memory efficient
+    max_grad_norm=1.0,
+    adam_epsilon=1e-8,  # Stable training
+    lr_scheduler_type="cosine_with_restarts",
+    optim="adamw_torch_fused",  # En hızlı optimizer
+    ddp_find_unused_parameters=False,  # Speed boost
+    torch_compile=True,  # PyTorch 2.0 optimize
+    report_to=[]  # Logging kapalı
+)
 
-model.fit(tf_dataset, epochs=3)
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=data,
+    data_collator=data_collator,
+    tokenizer=tokenizer
+)
 
-# === Save ===
-model.save_pretrained("../trained_model")
-tokenizer.save_pretrained("../trained_model")
+# === Train time ===
+print("🚀 Training başlıyor...")
+try:
+    trainer.train()
+    print("✅ Training tamamlandı!")
+except RuntimeError as e:
+    if "out of memory" in str(e):
+        print("💥 VRAM doldu! Batch size düşür")
+        torch.cuda.empty_cache()
+        gc.collect()
+    raise e
+
+# === Save final model + tokenizer ===
+print("💾 Model kaydediliyor...")
+model.save_pretrained("./trained_model")
+tokenizer.save_pretrained("./trained_model")
+print("🎉 Hepsi tamam!")
+
+
+#pip install torch transformers datasets accelerate

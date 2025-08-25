@@ -2,3 +2,5 @@ drive/client_secret_*.json
 drive/token.pickle
 .env
 drive.zip
+tokenizer
+test.url

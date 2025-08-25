@@ -69,3 +69,4 @@ tokenizer.train_from_iterator(iter_lines_parallel("./model.jsonl", batch_size=50
 tokenizer.save("tokenizer")
 
 #pip install tokenizers orjson
+#pip install google-api-python-client google-auth-oauthlib tokenizers orjson

@@ -3,7 +3,4 @@ drive.mount('/content/drive')
 
 !mkdir -p /content/drive/MyDrive
 
-!apt-get install -y tmate
-!tmate
-
 %cd /content/drive/MyDrive
