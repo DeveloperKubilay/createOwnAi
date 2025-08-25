@@ -1,13 +1,3 @@
-from google.colab import drive
-drive.mount('/content/drive')
-
-!mkdir -p /content/drive/Shareddrives/aidrive
-
-cd /content/drive/Shareddrives/aidrive
-
-
-
-
 import os
 import torch
 import json
