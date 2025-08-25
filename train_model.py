@@ -123,8 +123,9 @@ print(f"🧠 Model params: {sum(p.numel() for p in model.parameters())/1e6:.1f}M
 
 # === Memory AGGRESSIVE cleanup ===
 gc.collect()
-torch.cuda.empty_cache()
-torch.cuda.reset_peak_memory_stats()
+if torch.cuda.is_available():
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats()
 
 # === Dataset ===
 print("📂 Tokenized data yükleniyor...")
@@ -145,13 +146,13 @@ data_collator = DataCollatorForLanguageModeling(
     mlm=False
 )
 
-# === Training: T4 OPTIMIZE + KALITE ===
+# === Training: CPU/GPU OPTIMIZE + KALITE ===
 training_args = TrainingArguments(
     output_dir="./trained_model",
     overwrite_output_dir=True,
     num_train_epochs=3,
-    per_device_train_batch_size=1,  # T4 VRAM için zorunlu
-    gradient_accumulation_steps=16,   # Effective batch = 16
+    per_device_train_batch_size=2 if device.type == "cpu" else 1,  # CPU için biraz daha büyük
+    gradient_accumulation_steps=8 if device.type == "cpu" else 16,   # CPU için daha az
     save_steps=500,
     save_total_limit=3,
     prediction_loss_only=True,
@@ -160,10 +161,10 @@ training_args = TrainingArguments(
     learning_rate=5e-5,  # Kalite için stable LR
     warmup_steps=500,
     weight_decay=0.01,
-    fp16=True,  # T4 performance
-    fp16_opt_level="O1",
-    dataloader_pin_memory=False,  # Memory save
-    dataloader_num_workers=0,  # Memory save
+    fp16=torch.cuda.is_available(),  # Sadece GPU'da fp16
+    fp16_opt_level="O1" if torch.cuda.is_available() else None,
+    dataloader_pin_memory=torch.cuda.is_available(),  # Sadece GPU'da pin memory
+    dataloader_num_workers=2 if device.type == "cpu" else 0,  # CPU için workers
     remove_unused_columns=False,
     save_safetensors=True,
     resume_from_checkpoint=resume_from_checkpoint,
@@ -171,9 +172,9 @@ training_args = TrainingArguments(
     max_grad_norm=1.0,
     adam_epsilon=1e-8,  # Stable training
     lr_scheduler_type="cosine_with_restarts",
-    optim="adamw_torch_fused",  # En hızlı optimizer
+    optim="adamw_torch_fused" if torch.cuda.is_available() else "adamw_torch",  # CPU için normal adamw
     ddp_find_unused_parameters=False,  # Speed boost
-    torch_compile=False,  # T4 için kapalı
+    torch_compile=False,  # Her ikisi için de kapalı
     report_to=[]  # Logging kapalı
 )
 
@@ -236,7 +237,8 @@ except RuntimeError as e:
             loss=trainer.state.log_history[-1].get("train_loss", 0.0) if trainer.state.log_history else 0.0
         )
         backup_model(backup_name="oom_model")
-        torch.cuda.empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         gc.collect()
     raise e
 

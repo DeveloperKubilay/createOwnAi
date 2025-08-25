@@ -12,6 +12,7 @@ source myenv/bin/activate
 python3 main.py download 1fu_1CCeKw42zl-iCjEcQodA5reFlFLn2
 mv 1fu_1CCeKw42zl-iCjEcQodA5reFlFLn2 ./model.jsonl
 python3 main.py download 1sdApIUSmXpAtlA5f1CAOORxPbfoGo2qk
+mv 1sdApIUSmXpAtlA5f1CAOORxPbfoGo2qk ../model_tokenized.jsonl
 
 echo "PS1='\[\e[38;5;71m\]\u@\h\[\e[38;5;15m\]:\[\e[38;5;19m\]\w \[\e[38;5;15m\]#\[\e[0m\] '" >> ~/.bashrc && source ~/.bashrc
 sudo apt install unzip htop -y
@@ -21,5 +22,5 @@ PermitRootLogin yes
 sudo passwd 
 sudo systemctl restart sshd
 
-pip install tensorflow transformers datasets
+pip install torch transformers datasets accelerate
 pip install tokenizers orjson transformers TOKANİZER İÇİN BU
