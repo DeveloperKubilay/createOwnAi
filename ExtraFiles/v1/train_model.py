@@ -16,12 +16,6 @@ from transformers import (
 from datasets import load_dataset
 import gc
 
-# === WINDOWS MULTIPROCESSING FIX ===
-if __name__ == '__main__':
-    # Windows için multiprocessing fix
-    import multiprocessing
-    multiprocessing.freeze_support()
-
 # === BACKUP SYSTEM ===
 def create_backup_folder():
     """Backup klasörü oluştur"""
@@ -156,7 +150,7 @@ data_collator = DataCollatorForLanguageModeling(
 training_args = TrainingArguments(
     output_dir="./trained_model",
     overwrite_output_dir=True,
-    num_train_epochs=6,
+    num_train_epochs=3,
     per_device_train_batch_size=2 if device.type == "cpu" else 1,  # CPU için biraz daha büyük
     gradient_accumulation_steps=8 if device.type == "cpu" else 16,   # CPU için daha az
     save_steps=500,
@@ -164,13 +158,13 @@ training_args = TrainingArguments(
     prediction_loss_only=True,
     logging_steps=50,
     eval_steps=500,
-    learning_rate=2e-5,  # Kalite için stable LR
+    learning_rate=5e-5,  # Kalite için stable LR
     warmup_steps=500,
     weight_decay=0.01,
     fp16=torch.cuda.is_available(),  # Sadece GPU'da fp16
     fp16_opt_level="O1" if torch.cuda.is_available() else None,
     dataloader_pin_memory=torch.cuda.is_available(),  # Sadece GPU'da pin memory
-    dataloader_num_workers=0,  # Windows için workers=0
+    dataloader_num_workers=2 if device.type == "cpu" else 0,  # CPU için workers
     remove_unused_columns=False,
     save_safetensors=True,
     resume_from_checkpoint=resume_from_checkpoint,
@@ -211,60 +205,59 @@ trainer = BackupTrainer(
 )
 
 # === Train time ===
-if __name__ == '__main__':
-    print("🚀 Training başlıyor...")
-    try:
-        trainer.train(resume_from_checkpoint=resume_from_checkpoint)
-        print("✅ Training tamamlandı!")
-        
-        # Final backup
-        save_training_state(
-            step=trainer.state.global_step,
-            epoch=trainer.state.epoch,
-            loss=trainer.state.log_history[-1].get("train_loss", 0.0)
-        )
-        backup_model(backup_name="final_model")
-        
-    except KeyboardInterrupt:
-        print("⏸️ Training durduruldu, backup kaydediliyor...")
+print("🚀 Training başlıyor...")
+try:
+    trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+    print("✅ Training tamamlandı!")
+    
+    # Final backup
+    save_training_state(
+        step=trainer.state.global_step,
+        epoch=trainer.state.epoch,
+        loss=trainer.state.log_history[-1].get("train_loss", 0.0)
+    )
+    backup_model(backup_name="final_model")
+    
+except KeyboardInterrupt:
+    print("⏸️ Training durduruldu, backup kaydediliyor...")
+    save_training_state(
+        step=trainer.state.global_step,
+        epoch=trainer.state.epoch,
+        loss=trainer.state.log_history[-1].get("train_loss", 0.0) if trainer.state.log_history else 0.0
+    )
+    backup_model(backup_name="interrupted_model")
+    print("💾 Backup tamamlandı, kaldığı yerden devam edebilirsin!")
+    
+except RuntimeError as e:
+    if "out of memory" in str(e):
+        print("💥 VRAM doldu! Backup kaydediliyor...")
         save_training_state(
             step=trainer.state.global_step,
             epoch=trainer.state.epoch,
             loss=trainer.state.log_history[-1].get("train_loss", 0.0) if trainer.state.log_history else 0.0
         )
-        backup_model(backup_name="interrupted_model")
-        print("💾 Backup tamamlandı, kaldığı yerden devam edebilirsin!")
-        
-    except RuntimeError as e:
-        if "out of memory" in str(e):
-            print("💥 VRAM doldu! Backup kaydediliyor...")
-            save_training_state(
-                step=trainer.state.global_step,
-                epoch=trainer.state.epoch,
-                loss=trainer.state.log_history[-1].get("train_loss", 0.0) if trainer.state.log_history else 0.0
-            )
-            backup_model(backup_name="oom_model")
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            gc.collect()
-        raise e
+        backup_model(backup_name="oom_model")
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
+    raise e
 
-    # === Save final model + tokenizer ===
-    print("💾 Model kaydediliyor...")
-    model.save_pretrained("./trained_model")
-    tokenizer.save_pretrained("./trained_model")
+# === Save final model + tokenizer ===
+print("💾 Model kaydediliyor...")
+model.save_pretrained("./trained_model")
+tokenizer.save_pretrained("./trained_model")
 
-    # Final cleanup - eski backup'ları temizle (son 5'i tut)
-    backup_dir = "./backups"
-    if os.path.exists(backup_dir):
-        state_files = [f for f in os.listdir(backup_dir) if f.startswith("training_state_") and f.endswith(".json")]
-        state_files.sort(reverse=True)
-        
-        for old_file in state_files[5:]:  # Son 5'i tut
-            os.remove(os.path.join(backup_dir, old_file))
-            print(f"🗑️ Eski backup silindi: {old_file}")
+# Final cleanup - eski backup'ları temizle (son 5'i tut)
+backup_dir = "./backups"
+if os.path.exists(backup_dir):
+    state_files = [f for f in os.listdir(backup_dir) if f.startswith("training_state_") and f.endswith(".json")]
+    state_files.sort(reverse=True)
+    
+    for old_file in state_files[5:]:  # Son 5'i tut
+        os.remove(os.path.join(backup_dir, old_file))
+        print(f"🗑️ Eski backup silindi: {old_file}")
 
-    print("🎉 Hepsi tamam!")
+print("🎉 Hepsi tamam!")
 
 
 #pip install torch transformers datasets accelerate

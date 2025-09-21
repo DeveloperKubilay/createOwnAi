@@ -1,5 +1,5 @@
-drive/client_secret_*.json
-drive/token.pickle
+ExtraFiles/drive/client_secret_*.json
+ExtraFiles/drive/token.pickle
 .env
 drive.zip
 tokenizer
